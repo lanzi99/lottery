@@ -1,0 +1,36 @@
+name: Build Tauri App
+
+on:
+  push:
+    branches: [main]  # 推送到 main 分支时触发
+  workflow_dispatch:   # 允许手动触发
+
+jobs:
+  build:
+    runs-on: windows-latest  # 只构建 Windows 版本
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20  # 匹配你的 Node.js 版本
+          
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          
+      - name: Install dependencies
+        run: npm install
+        
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        with:
+          args: build --target x86_64-pc-windows-msvc
+          
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: src-tauri/target/release/bundle/nsis/*.exe
