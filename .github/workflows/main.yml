@@ -1,38 +1,50 @@
-name: Build Tauri App
+name: Build Tauri Windows EXE
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch:  # 允许手动触发
 
 jobs:
   build-windows:
     runs-on: windows-latest
     steps:
+      # 1. 拉取代码（升级到 v5 消除 Node 20 警告）
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # 2. 配置 Node.js（升级到 22 消除警告）
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: 22
+          cache: 'npm'  # 缓存依赖加速构建
 
+      # 3. 配置 Rust 环境
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
-      - name: Install dependencies
+      # 4. 安装 Windows 构建工具（解决依赖缺失）
+      - name: Install Windows Build Dependencies
+        run: |
+          choco install -y vcbuildtools
+          choco install -y nsis
+
+      # 5. 安装项目依赖
+      - name: Install NPM Dependencies
         run: npm ci
 
-      - name: Build Tauri app
+      # 6. 构建 Tauri 应用（修复重复 build 参数）
+      - name: Build Tauri Windows EXE
         uses: tauri-apps/tauri-action@v0
         with:
           args: build --target x86_64-pc-windows-msvc
 
-      - name: Upload EXE
+      # 7. 上传 EXE 产物
+      - name: Upload Windows EXE Installer
         uses: actions/upload-artifact@v4
         with:
-          name: Windows-EXE
+          name: Tauri-Windows-EXE
           path: src-tauri/target/release/bundle/nsis/*.exe
