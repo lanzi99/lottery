@@ -2,35 +2,42 @@ name: Build Tauri App
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    branches: [ main ]
+  workflow_dispatch: # 允许手动触发
 
 jobs:
-  build:
+  build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      
+
+      # 1. 升级 Node.js 版本（解决弃用警告，推荐 20.x 或 22.x）
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-          
-      - name: Install Rust
+          node-version: 20
+          cache: 'npm'
+
+      # 2. 安装 Rust 环境（Tauri 核心）
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-          
-      - name: Install dependencies
-        run: npm install
-        
-      - name: Build Tauri app
+
+      # 3. 安装项目依赖
+      - name: Install Dependencies
+        run: npm ci
+
+      # 4. 构建 Tauri 应用（关键：去掉重复的 --build 参数）
+      - name: Build Tauri App
         uses: tauri-apps/tauri-action@v0
         with:
+          # 命令仅保留一次 build，正确指定目标平台
           args: build --target x86_64-pc-windows-msvc
-          
-      - name: Upload EXE artifact
+
+      # 5. 上传构建产物 EXE
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windows-exe
+          name: Windows-EXE-Installer
           path: src-tauri/target/release/bundle/nsis/*.exe
