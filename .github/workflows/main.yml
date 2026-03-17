@@ -1,50 +1,101 @@
-name: Build Tauri Windows EXE
+name: Release Tauri Lottery App
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:  # 允许手动触发
+    workflow_dispatch:  # 允许手动触发构建
+    push:
+        tags:
+            - 'v*'       # 推送 v 开头的标签时触发（如 v1.0.0）
+        # branches: ['main']  # 如需推送到 main 分支触发，取消注释
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      # 1. 拉取代码（升级到 v5 消除 Node 20 警告）
-      - name: Checkout code
-        uses: actions/checkout@v5
+    publish-tauri:
+        permissions:
+            contents: write  # 授予发布 Release 的权限
+        strategy:
+            fail-fast: false  # 一个平台构建失败不影响其他平台
+            matrix:
+                include:
+                    # macOS 平台（ARM/M1+ 和 Intel 双架构）
+                    - platform: 'macos-latest'
+                      target: 'aarch64-apple-darwin'
+                      args: '--target aarch64-apple-darwin'
+                    - platform: 'macos-latest'
+                      target: 'x86_64-apple-darwin'
+                      args: '--target x86_64-apple-darwin'
 
-      # 2. 配置 Node.js（升级到 22 消除警告）
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: 'npm'  # 缓存依赖加速构建
+                    # Linux 平台（x64 和 ARM 双架构）
+                    - platform: 'ubuntu-22.04'
+                      target: 'x86_64-unknown-linux-gnu'
+                      args: ''
+                    - platform: 'ubuntu-22.04'
+                      target: 'aarch64-unknown-linux-gnu'
+                      args: ''
 
-      # 3. 配置 Rust 环境
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
+                    # Windows 平台（x64 和 ARM 双架构，核心修复重复 build 参数）
+                    - platform: 'windows-latest'
+                      target: 'x86_64-pc-windows-msvc'
+                      args: ''
+                    - platform: 'windows-latest'
+                      target: 'aarch64-pc-windows-msvc'
+                      args: '--target aarch64-pc-windows-msvc'
 
-      # 4. 安装 Windows 构建工具（解决依赖缺失）
-      - name: Install Windows Build Dependencies
-        run: |
-          choco install -y vcbuildtools
-          choco install -y nsis
+        runs-on: ${{ matrix.platform }}
+        timeout-minutes: 60  # 构建超时时间（防止卡壳）
+        steps:
+            # 1. 拉取代码（保留 v4 兼容，如需消除 Node 20 警告可升级到 v5）
+            - uses: actions/checkout@v4
 
-      # 5. 安装项目依赖
-      - name: Install NPM Dependencies
-        run: npm ci
+            # 2. 检查 Tauri 私钥（可选：如需代码签名，需配置 TAURI_PRIVATE_KEY 秘钥）
+            - name: Check Tauri Private Key
+              if: env.TAURI_PRIVATE_KEY == ''
+              run: |
+                  echo "::warning::TAURI_PRIVATE_KEY not set (optional for unsigned builds)!"
+                  # 注释 exit 1，无签名密钥也可构建（仅无代码签名）
+                  # exit 1
 
-      # 6. 构建 Tauri 应用（修复重复 build 参数）
-      - name: Build Tauri Windows EXE
-        uses: tauri-apps/tauri-action@v0
-        with:
-          args: build --target x86_64-pc-windows-msvc
+            # 3. 安装对应架构的 Rust 目标
+            - name: Install Rust Target
+              run: rustup target add ${{ matrix.target }}
 
-      # 7. 上传 EXE 产物
-      - name: Upload Windows EXE Installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: Tauri-Windows-EXE
-          path: src-tauri/target/release/bundle/nsis/*.exe
+            # 4. 配置 Node.js（适配 npm，替换原 pnpm 为 npm）
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: 'npm'  # 缓存 npm 依赖加速构建
+
+            # 5. 安装前端依赖（适配你的项目：npm 而非 pnpm）
+            - name: Install Frontend Dependencies
+              run: npm install
+
+            # 6. 安装 Rust stable 版本
+            - name: Install Rust Stable
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
+
+            # 7. 生成 Tauri 应用图标（如需自定义图标，确保 icons 目录存在）
+            - name: Generate Tauri Icons
+              run: npx tauri icon  # 替换 pnpm 为 npx，适配 npm 项目
+
+            # 8. 安装 Ubuntu 依赖（仅 Linux 平台需要）
+            - name: Install Linux Dependencies
+              if: matrix.platform == 'ubuntu-22.04'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+            # 9. 构建并发布 Tauri 应用（核心：修复参数重复问题）
+            - uses: tauri-apps/tauri-action@v0  # 替换为官方 Tauri Action（更稳定）
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}  # 可选：代码签名密钥
+              with:
+                  tagName: 'LotteryApp-v__VERSION__'  # 发布标签名（自动填充版本）
+                  releaseName: '年会抽奖 v__VERSION__'  # 发布名称（中文）
+                  releaseBody: '年会抽奖应用多平台构建版本，支持 Windows/macOS/Linux'
+                  releaseDraft: false  # 不创建草稿发布
+                  prerelease: false     # 非预发布版本
+                  publish: true         # 自动发布到 GitHub Release
+                  args: ${{ matrix.args }}  # 传递架构参数（无重复 build）
+                  renameArtifacts: '年会抽奖-${{ matrix.target }}'  # 产物重命名（区分架构）
