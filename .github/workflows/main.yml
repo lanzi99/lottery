@@ -1,1 +1,4 @@
-npm run tauri build
+- name: Build Tauri App
+  uses: tauri-apps/tauri-action@v0
+  with:
+    args: build --target x86_64-pc-windows-msvc
