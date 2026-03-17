@@ -4,47 +4,60 @@ on:
   workflow_dispatch:  # 手动触发
   push:
     tags:
-      - 'v*'         # 打 v 开头标签自动触发
+      - 'v*'         # 打标签自动触发
 
 jobs:
   build-tauri:
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: 'windows-latest'
-            target: 'x86_64-pc-windows-msvc'
-            args: ''
-
-    runs-on: ${{ matrix.platform }}
+    runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5  # 升级消除 Node 20 警告
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # 1. 安装 Windows 必备构建工具（解决环境缺失问题）
+      - name: Install Windows Build Dependencies
+        run: |
+          choco install -y vcbuildtools nsis
+          rustup toolchain install stable-x86_64-pc-windows-msvc
+          rustup default stable-x86_64-pc-windows-msvc
+
+      # 2. 配置 Node.js（升级到 22 消除警告）
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
+      # 3. 安装 Rust 环境
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: x86_64-pc-windows-msvc
 
-      - name: Install dependencies
-        run: npm install
+      # 4. 安装项目依赖 + 打印依赖信息（排查依赖问题）
+      - name: Install & Check Dependencies
+        run: |
+          npm install
+          npm list  # 打印已安装依赖，排查缺失/冲突
+          npm run build --dry-run  # 测试前端构建命令是否有效
 
-      - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+      # 5. 先单独构建前端（提前暴露前端错误）
+      - name: Build Frontend First
+        run: npm run build  # 对应 tauri.conf.json 里的 beforeBuildCommand
+
+      # 6. 构建 Tauri 应用（打印详细日志）
+      - name: Build Tauri App
+        run: |
+          npm run tauri build --verbose  # --verbose 打印详细日志
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 7. 上传产物（即使构建失败，也能看日志）
+      - name: Upload Artifact
+        if: always()  # 无论成败都上传日志
+        uses: actions/upload-artifact@v4
         with:
-          tagName: 'v__VERSION__'
-          releaseName: '年会抽奖 v__VERSION__'
-          releaseBody: '自动构建的年会抽奖安装包'
-          releaseDraft: false
-          prerelease: false
-          args: ${{ matrix.args }}
-          renameArtifacts: '年会抽奖'
+          name: build-logs
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/logs/*
