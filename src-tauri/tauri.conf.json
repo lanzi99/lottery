@@ -7,7 +7,7 @@
   },
   "package": {
     "productName": "年会抽奖",
-    "version": "1.0.0"
+    "version": "1.0.1"
   },
   "tauri": {
     "allowlist": {
@@ -49,7 +49,7 @@
       {
         "fullscreen": false,
         "resizable": true,
-        "title": "年会抽奖 - 吾爱破解独家首发 by pikapikapi",
+        "title": "年会抽奖",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
